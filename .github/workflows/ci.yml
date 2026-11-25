@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-and-frontend:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: shopflow_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/shopflow_db
+      REDIS_URL: redis://localhost:6379/1
+      CELERY_BROKER_URL: redis://localhost:6379/2
+      CELERY_RESULT_BACKEND: redis://localhost:6379/2
+      STRIPE_SECRET_KEY: sk_test_simulated
+      DJANGO_SECRET_KEY: ci-test-secret-key
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Install Python dependencies and run pytest with coverage
+        working-directory: backend
+        run: |
+          uv sync
+          uv run python manage.py migrate
+          uv run pytest --cov=store --cov-report=term-missing --cov-fail-under=80
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build React storefront
+        working-directory: frontend
+        run: |
+          npm install
+          npm run build
